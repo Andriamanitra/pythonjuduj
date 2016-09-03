@@ -1,4 +1,6 @@
 import random
+from threading import Thread
+from threading import Lock
 from math import log2
 from math import ceil
 
@@ -286,26 +288,16 @@ def verify_chain(n, ch):
     return r
 
 
-def main():
-    monsters = []
-    gen = 0
+def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutation_p, stagnation, target_fitness):
+    tourn_size = 3 # only works with tournament size 3 for now
     best = 715517
+    gen = 0 # generation number
     lbm = 0 # last beneficial mutation
-    tournament_size = 3
-    tournaments_per_gen = 500
-    monster_count = 1500
-    max_gens_without_improvement = 0
-    target_fitness = 85
-    mutation_p = 0.5
 
-
-    for u in range(monster_count):
-        monsters.append(Chainfinder())
-    print("Spawned "+str(monster_count)+" chainfinder monsters")
     while True:
-        for _ in range(tournaments_per_gen):
+        for _ in range(tourn_per_gen):
             tournament = []
-            for _ in range(tournament_size):
+            for _ in range(tourn_size):
                 tournament.append(monsters.pop(random.randint(0, len(monsters)-1)))
             tournament.pop(tournament.index(min(tournament)))
             tournament.append(tournament[0].crossover(tournament[1]))
@@ -315,26 +307,100 @@ def main():
                 monsters.append(tournament_survivor)
 
         alpha = max(monsters)
-        print("Gen #"+str(gen)+", min(l)="+str(alpha.fitness()))
         if alpha.fitness() < best:
+            mutex.acquire()
+            print(pop_id+" evolved: Gen #"+str(gen)+", min(l)="+str(alpha.fitness()))
+            mutex.release()
             lbm = 0+gen
             best = alpha.fitness()
             if alpha.fitness() < 95:
+                mutex.acquire()
                 with open("chains.txt", "a") as the_file:
                     the_file.write(str(alpha.fitness())+":\n"+str(alpha.get_chain())+"\n\n")
                 #alpha.print_chain()
+                mutex.release()
             if not verify_chain(N, alpha.get_chain()):
                 raise Exception("evolutionary method is broken")
-            if alpha.fitness() < target_fitness:
-                print("reached target fitness, terminating")
-                break
+            if alpha.fitness() <= target_fitness:
+                mutex.acquire()
+                print(pop_id+" reached target fitness, returning")
+                mutex.release()
+                return monsters
         gen += 1
-        if max_gens_without_improvement != 0 and gen-lbm > max_gens_without_improvement:
-            print("reached "+str(max_gens_without_improvement)+
-                " generations without improvements, terminating")
+        if stagnation != 0 and gen-lbm > stagnation:
+            mutex.acquire()
+            print(pop_id+" stagnant for "+str(stagnation)+" generations (min(l)="+
+                str(alpha.fitness())+"), returning")
+            mutex.release()
+            return monsters
+
+
+def generate_population(pop_size, mutex):
+    monsters = []
+    for _ in range(pop_size):
+        monsters.append(Chainfinder())
+    mutex.acquire()
+    print("Spawned", pop_size, "monsters")
+    mutex.release()
+    return monsters
+
+
+def combine_pops(pops, pop_size):
+    megap = []
+    for p in pops:
+        megap += p
+    return random.sample(megap, pop_size)
+
+
+
+def evol(thrd_nm="", mutex=False):
+    if not mutex:
+        mutex = Lock()
+    tpg = 400 # tournaments per gen
+    mp = 0.7 # mutation probability
+    pop_size = 2000
+    stagnation = 300
+    target_fitness = 85
+    tries = 0 # 0 to go until target (may result in infinite loop)
+    pops = []
+    curr_best = 715517
+    chain = []
+    i = 0
+    while True:
+        pops.append(generate_population(pop_size, mutex))
+        pop_name = "Population #"+str(i+1)
+        if thrd_nm:
+            pop_name = thrd_nm+pop_name
+        evolve_population(pop_name, pops[i], mutex, pop_size, tpg, mp, stagnation, target_fitness)
+        fitn = max(pops[-1]).fitness()
+        if fitn < curr_best:
+            curr_best = 0+fitn
+            chain = max(pops[-1]).get_chain()
+            if fitn <= target_fitness:
+                return chain
+        i += 1
+        if tries != 0 and i == tries:
+            print("Enough trying, I give up")
             break
-    print("\n")
-    print("Results with evolutionary:\nl("+str(N)+") =", best)
+    return chain
+
+
+def crunch(thread_count):
+    threads = []
+    mutex = Lock()
+    for i in range(thread_count):
+        threads.append(Thread(target=evol, args=("Thread "+str(i+1), mutex)))
+        threads[-1].start()
+
+
+def main():
+    chain = evol()
+    print("\n\n")
+    if verify_chain(N, chain):
+        print("Results with evolutionary method:")
+        print_chain_l(chain)
+    else:
+        raise Exception("evolutionary method is broken")
     chain = binary_method(N)
     if verify_chain(N, chain):
         print("Results with binary method:")
@@ -350,4 +416,5 @@ def main():
     print("Lower bound for l("+str(N)+") = "+str(lower_bound(N)))
 
 
+#crunch(4)
 main()
