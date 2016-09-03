@@ -336,11 +336,14 @@ def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutation
 
 
 def generate_population(pop_size, mutex):
+    mutex.acquire()
+    print("Monster spawning started..")
+    mutex.release()
     monsters = []
     for _ in range(pop_size):
         monsters.append(Chainfinder())
     mutex.acquire()
-    print("Spawned", pop_size, "monsters")
+    print("Spawned", pop_size, "monsters!")
     mutex.release()
     return monsters
 
@@ -356,12 +359,12 @@ def combine_pops(pops, pop_size):
 def evol(thrd_nm="", mutex=False):
     if not mutex:
         mutex = Lock()
-    tpg = 400 # tournaments per gen
+    tpg = 100 # tournaments per gen
     mp = 0.7 # mutation probability
-    pop_size = 2000
-    stagnation = 300
+    pop_size = 300
+    stagnation = 100
     target_fitness = 85
-    tries = 0 # 0 to go until target (may result in infinite loop)
+    tries = 1 # 0 to go until target (may result in infinite loop)
     pops = []
     curr_best = 715517
     chain = []
@@ -370,7 +373,7 @@ def evol(thrd_nm="", mutex=False):
         pops.append(generate_population(pop_size, mutex))
         pop_name = "Population #"+str(i+1)
         if thrd_nm:
-            pop_name = thrd_nm+pop_name
+            pop_name = thrd_nm+": "+pop_name
         evolve_population(pop_name, pops[i], mutex, pop_size, tpg, mp, stagnation, target_fitness)
         fitn = max(pops[-1]).fitness()
         if fitn < curr_best:
@@ -416,5 +419,5 @@ def main():
     print("Lower bound for l("+str(N)+") = "+str(lower_bound(N)))
 
 
-#crunch(4)
 main()
+#crunch(4)
