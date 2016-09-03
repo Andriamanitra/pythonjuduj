@@ -51,7 +51,6 @@ class Chainfinder:
             self.chain = random.choice(INITIAL_CHAINS)
         else:
             self.chain = ch
-            #self.chain = self.repair_chain(self.chain)
             return
         if random.randint(1,5) <= 3:
             i = len(self.chain)-1
@@ -292,48 +291,45 @@ def main():
     gen = 0
     best = 715517
     lbm = 0 # last beneficial mutation
-    monster_count = 25
-    max_gens_without_improvement = 100
-    freak_accidents_per_gen = 2
-    darwinization = 10
+    tournament_size = 3
+    tournaments_per_gen = 500
+    monster_count = 1500
+    max_gens_without_improvement = 0
+    target_fitness = 85
+    mutation_p = 0.5
 
 
     for u in range(monster_count):
         monsters.append(Chainfinder())
     print("Spawned "+str(monster_count)+" chainfinder monsters")
     while True:
-        alpha = monsters.pop(monsters.index(max(monsters)))
-        beta = monsters.pop(monsters.index(max(monsters)))
-        omega = monsters.pop(monsters.index(max(monsters)))
+        for _ in range(tournaments_per_gen):
+            tournament = []
+            for _ in range(tournament_size):
+                tournament.append(monsters.pop(random.randint(0, len(monsters)-1)))
+            tournament.pop(tournament.index(min(tournament)))
+            tournament.append(tournament[0].crossover(tournament[1]))
+            if random.random() < mutation_p:
+                tournament[2] = tournament[2].mutate()
+            for tournament_survivor in tournament:
+                monsters.append(tournament_survivor)
+
+        alpha = max(monsters)
         print("Gen #"+str(gen)+", min(l)="+str(alpha.fitness()))
         if alpha.fitness() < best:
             lbm = 0+gen
             best = alpha.fitness()
-            if alpha.fitness() < 100:
-                alpha.print_chain()
+            if alpha.fitness() < 95:
+                with open("chains.txt", "a") as the_file:
+                    the_file.write(str(alpha.fitness())+":\n"+str(alpha.get_chain())+"\n\n")
+                #alpha.print_chain()
             if not verify_chain(N, alpha.get_chain()):
                 raise Exception("evolutionary method is broken")
-        monsters.append(alpha)
-        monsters.append(beta)
-        monsters.append(omega)
-        for _ in range(freak_accidents_per_gen):
-            monsters.pop(random.randint(0, len(monsters)-1))
-        for _ in range(darwinization):
-            monsters.pop(monsters.index(min(monsters)))
-        monsters.append(alpha.crossover(beta))
-        monsters.append(alpha.crossover(random.choice(monsters)))
-        monsters.append(alpha.crossover(random.choice(monsters)))
-        monsters.append(beta.crossover(random.choice(monsters)))
-        monsters.append(beta.crossover(random.choice(monsters)))
-        monsters.append(omega.crossover(random.choice(monsters)))
-        monsters.append(alpha.mutate())
-        monsters.append(alpha.mutate(10))
-        monsters.append(beta.mutate())
-        monsters.append(omega.mutate())
-        while len(monsters) < monster_count:
-            monsters.append(Chainfinder())
+            if alpha.fitness() < target_fitness:
+                print("reached target fitness, terminating")
+                break
         gen += 1
-        if gen-lbm > max_gens_without_improvement:
+        if max_gens_without_improvement != 0 and gen-lbm > max_gens_without_improvement:
             print("reached "+str(max_gens_without_improvement)+
                 " generations without improvements, terminating")
             break
