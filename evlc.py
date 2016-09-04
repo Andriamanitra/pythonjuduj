@@ -24,8 +24,13 @@ class Chainlink:
         return self.__left
     def right(self):
         return self.__right
-    #def __get__(self):
-    #    return self.__value
+    def fix(self, r):
+    # fixes the references when the preceding link
+    # at index r is removed from chain
+        if r < self.__left:
+            self.__left -= 1
+        if r < self.__right:
+            self.__right -= 1
     def __int__(self):
         return self.__value
     def __mul__(self, other):
@@ -70,9 +75,9 @@ class Chainfinder:
             next_el = Chainlink(self.chain, random.randint(0, halfway-1), random.randint(halfway, self.last_i()))
         elif r == 3:
             i = -2
-            while self.last() + self.chain[i] > N:
+            while -i < len(self) and self.last() + self.chain[i] > N:
                 i -= 1
-            next_el = Chainlink(self.chain, self.last_i(), i)
+            next_el = Chainlink(self.chain, self.last_i(), len(self)+i)
         if next_el <= N and next_el not in self.chain:
             self.add(next_el)
         self.chain = self.repair_chain(self.chain)
@@ -85,6 +90,9 @@ class Chainfinder:
         for i in range(r, len(other)):
             x = other.chain[i].left()
             y = other.chain[i].right()
+            if x == len(child_chain) or y == len(child_chain):
+                print(x, y, len(child_chain))
+                print(child_chain[-1])
             child_chain.append(Chainlink(child_chain, x, y))
         child_chain = self.repair_chain(child_chain)
         return Chainfinder(child_chain)
@@ -92,26 +100,32 @@ class Chainfinder:
     def mutate(self, x=1):
         mutated_chain = [i for i in self.chain]
         for _ in range(x):
-            r = random.randint(3, len(mutated_chain)-1)
+            r = random.randint(4, len(mutated_chain)-1)
             if random.randint(0,1):
                 mutated_chain[r] = Chainlink(mutated_chain, r-1, r-2)
-                mutated_chain = mutated_chain[:r+1]
+                mutated_chain = removed_from_chain(mutated_chain, r)
             else:
                 r2 = random.randint(2, r-1)
-                mutated_chain[r] = Chainlink(mutated_chain, len(mutated_chain)-1, r2)
-                mutated_chain = mutated_chain[:r+1]
+                mutated_chain[r] = Chainlink(mutated_chain, r-1, r2)
+                mutated_chain = removed_from_chain(mutated_chain, r)
             mutated_chain = self.repair_chain(mutated_chain)
         return Chainfinder(mutated_chain)
 
     def repair_chain(self, ch):
         ch = [i for i in ch if i <= N]
         ch = sorted(ch)
+        for i in range(5, len(ch)):
+            if ch[i] != ch[i].left() + ch[i].right():
+                # let's just break the chain here i'm uncapable of
+                # fixing this properly and it seems to work ok this way
+                ch = ch[:i]
+                break
         while ch[-1] != N:
             for i in range(len(ch)):
                 if ch[i]+ch[-1] == N:
                     ch.append(Chainlink(ch, i, len(ch)-1))
                     return ch
-            r = random.randint(0,5)
+            r = random.randint(0,2)
             if r == 0 and ch[-1]*2 <= N:
                 while ch[-1]*2 <= N:
                     ch.append(Chainlink(ch, len(ch)-1, len(ch)-1))
@@ -123,7 +137,8 @@ class Chainfinder:
                 i = -2
                 while ch[-1]+ch[i] > N:
                     i -= 1
-                ch.append(Chainlink(ch, len(ch)-1, i))
+                ch.append(Chainlink(ch, len(ch)-1, len(ch)+i))
+
         return ch
 
     def add(self, x):
@@ -155,6 +170,22 @@ class Chainfinder:
         return self.fitness() <= other.fitness()
     def __le__(self, other):
         return self.fitness() >= other.fitness()
+
+
+def removed_from_chain(ch, r):
+    if ch[r] > N:
+    # repair function will do the fixing in this case
+        return ch
+    rems = [r]
+    for i in range(r+1, len(ch)):
+        if (ch[i].left() in rems) or (ch[i].right() in rems):
+            rems.append(i)
+
+    for i in reversed(rems[1:]):
+        for j in range(i, len(ch)):
+            ch[j].fix(i)
+        ch.pop(i)
+    return ch
 
 
 def binary_representation(n):
@@ -288,7 +319,7 @@ def verify_chain(n, ch):
     return r
 
 
-def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutation_p, stagnation, target_fitness):
+def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutations_per_gen, loser_dies_p, mutation_p, stagnation, target_fitness):
     tourn_size = 3 # only works with tournament size 3 for now
     best = 715517
     gen = 0 # generation number
@@ -299,12 +330,18 @@ def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutation
             tournament = []
             for _ in range(tourn_size):
                 tournament.append(monsters.pop(random.randint(0, len(monsters)-1)))
-            tournament.pop(tournament.index(min(tournament)))
+            if random.random() < loser_dies_p:
+                tournament.pop(tournament.index(min(tournament)))
+            else:
+                tournament.pop(random.randint(0, tourn_size-1))
             tournament.append(tournament[0].crossover(tournament[1]))
             if random.random() < mutation_p:
                 tournament[2] = tournament[2].mutate()
             for tournament_survivor in tournament:
                 monsters.append(tournament_survivor)
+        for _ in range(mutations_per_gen):
+            r = random.randint(0, len(monsters)-1)
+            monsters[r] = monsters[r].mutate()
 
         alpha = max(monsters)
         if alpha.fitness() < best:
@@ -359,9 +396,11 @@ def combine_pops(pops, pop_size):
 def evol(thrd_nm="", mutex=False):
     if not mutex:
         mutex = Lock()
-    tpg = 100 # tournaments per gen
+    tpg = 80 # tournaments per gen
+    mpg = 5 # mutations per gen
     mp = 0.7 # mutation probability
-    pop_size = 300
+    ldp = 0.6 # probability that loser dies in tournament
+    pop_size = 500
     stagnation = 100
     target_fitness = 85
     tries = 1 # 0 to go until target (may result in infinite loop)
@@ -374,7 +413,7 @@ def evol(thrd_nm="", mutex=False):
         pop_name = "Population #"+str(i+1)
         if thrd_nm:
             pop_name = thrd_nm+": "+pop_name
-        evolve_population(pop_name, pops[i], mutex, pop_size, tpg, mp, stagnation, target_fitness)
+        evolve_population(pop_name, pops[i], mutex, pop_size, tpg, mpg, ldp, mp, stagnation, target_fitness)
         fitn = max(pops[-1]).fitness()
         if fitn < curr_best:
             curr_best = 0+fitn
@@ -419,5 +458,5 @@ def main():
     print("Lower bound for l("+str(N)+") = "+str(lower_bound(N)))
 
 
-main()
 #crunch(4)
+main()
