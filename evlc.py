@@ -1,28 +1,52 @@
+# Very crude evolutionary algorithm for finding short addition chains
+
+# Some other possibly useful functions that I made for testing etc during
+# the project are included. If you're going to use this algorithm you'll
+# probably want to fiddle with some of the parameters defined (especially
+# the ones in "evol()" function). N defined here is the target exponent
+# for the addition chain.
+N = 26235947428953663183191
+
+# The code is not very eloquent or efficient (and it has tons of bugs)
+# partly because this was mostly done as a learning project and I had no
+# idea what I'm doing in the beginning and am too lazy to do it right
+# from the start now. That said, it works and with right parameters and
+# enough time you can get better results than with standard binary method.
+# I used this paper as a general guideline for the algorithm:
+# https://bib.irb.hr/datoteka/809119.Chains.pdf
+
+# If you have any suggestions on how to improve the algorithm or fix some
+# of the numerous bugs I'd be happy to hear about them!
+
 import random
 from threading import Thread
 from threading import Lock
 from math import log2
 from math import ceil
 
-N = 26235947428953663183191
-INITIAL_CHAINS = [[1,2,3,5,7], [1,2,3,6,7],
-                 [1,2,4,5,7], [1,2,4,6,7],
-                 [1,2,4,8,9], [1,2,3,5,10],
-                 [1,2,3,6,9], [1,2,4,5,10],
-                 [1,2,4,6,10], [1,2,4,8,9],
-                 [1,2,3,6,12], [1,2,4,6,12],
-                 [1,2,4,8,12], [1,2,4,8,16]]
+INITIAL_CHAINS = [[1,2,3,5,7], [1,2,3,6,7], [1,2,4,5,7],
+                  [1,2,4,6,7], [1,2,4,8,9], [1,2,3,5,10],
+                  [1,2,3,6,9], [1,2,4,5,10], [1,2,4,6,10],
+                  [1,2,4,8,9], [1,2,3,6,12], [1,2,4,6,12],
+                  [1,2,4,8,12], [1,2,4,8,16]]
+
+
 
 def chain_to_links(ch):
+    # this function is horribly inefficient and not
+    # reliable for most chains but for the purposes
+    # it's used here it should work well enough
     linky_chain = [1, 2]
     for i in range(2, len(ch)):
         for a in list(range(i)):
             for b in list(range(a+1)):
                 if ch[a]+ch[b] == ch[i]:
                     linky_chain.append(Chainlink(linky_chain, a, b))
-        #else:
-        #    raise Exception("chain_to_links() received invalid chain!")
-    return linky_chain
+                    break
+    if verify_chain(linky_chain[-1], linky_chain):
+        return linky_chain
+    else:
+        raise Exception("chain_to_links() has failed ;_;")
 
 
 class Chainlink:
@@ -86,7 +110,8 @@ class Chainfinder:
             next_el = Chainlink(self.chain, self.last_i(), random.randint(0, self.last_i()))
         elif r == 2:
             halfway = len(self)//2 + 1
-            next_el = Chainlink(self.chain, random.randint(0, halfway-1), random.randint(halfway, self.last_i()))
+            next_el = Chainlink(self.chain, random.randint(0, halfway-1),
+                      random.randint(halfway, self.last_i()))
         elif r == 3:
             i = -2
             while -i < len(self) and self.last() + self.chain[i] > N:
@@ -161,7 +186,7 @@ class Chainfinder:
         ch = sorted(ch)
         for i in range(5, len(ch)):
             if ch[i] != ch[i].left() + ch[i].right():
-                # let's just break the chain here i'm uncapable of
+                # let's just break the chain here since I'm uncapable of
                 # fixing this properly and it seems to work ok this way
                 ch = ch[:i]
                 break
@@ -248,7 +273,7 @@ def print_chain_l(ch):
 
 def binary_method(n):
     chain = [1]
-    for bit in binary_representation(n)[1:]: # first "1" needs to be ignored
+    for bit in binary_representation(n)[1:]: # first "1" is ignored
         # double if "0"
         if bit == "0":
             chain.append(chain[-1]*2)
@@ -364,7 +389,8 @@ def verify_chain(n, ch):
     return r
 
 
-def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen, mutations_per_gen, loser_dies_p, mutation_p, stagnation, target_fitness):
+def evolve_population(pop_id, monsters, mutex, pop_size, tourn_per_gen,
+        mutations_per_gen, loser_dies_p, mutation_p, stagnation, target_fitness):
     tourn_size = 3 # only works with tournament size 3 for now
     gen = 0 # generation number
     lbm = 0 # last beneficial mutation
@@ -492,7 +518,8 @@ def evol(thrd_nm="", mutex=False):
     mp = 0.6 # mutation probability
     ldp = 1 # probability that loser dies in tournament
     pop_size = 300
-    stagnation = 20
+    stagnation = 20 # after this many generations the algorithm
+                    # generates new population and starts over
     target_fitness = 85
     tries = 1 # 0 to go until target (may result in infinite loop)
     pops = []
@@ -505,7 +532,8 @@ def evol(thrd_nm="", mutex=False):
         pop_name = "Population #"+str(i+1)
         if thrd_nm:
             pop_name = thrd_nm+": "+pop_name
-        pops[i] = evolve_population(pop_name, pops[i], mutex, pop_size, tpg, mpg, ldp, mp, stagnation, target_fitness)
+        pops[i] = evolve_population(pop_name, pops[i], mutex, pop_size, tpg,
+                     mpg, ldp, mp, stagnation, target_fitness)
         fitn = max(pops[-1]).fitness()
         if fitn < curr_best:
             curr_best = 0+fitn
